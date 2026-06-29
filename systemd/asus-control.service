@@ -1,0 +1,12 @@
+[Unit]
+Description=Linux ASUS Control automation daemon
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/opt/asus-control/.venv/bin/python /opt/asus-control/daemon.py --config /opt/asus-control/config.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
