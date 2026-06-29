@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asus-control"
+version = "0.1.0"
+description = "Linux ASUS Control utility for platform-profile, hwmon and power_supply"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "PyYAML>=6.0.2",
+    "rich>=13.7.0",
+    "dbus-next>=0.2.3",
+]
+
+[project.scripts]
+fan = "asus_control.cli:main"
+asus-control-daemon = "asus_control.daemon:main"
+asus-control-dbus = "asus_control.dbus_api:main"
+
+[tool.setuptools]
+packages = ["asus_control"]

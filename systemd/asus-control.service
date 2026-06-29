@@ -4,7 +4,8 @@ After=multi-user.target
 
 [Service]
 Type=simple
-ExecStart=/opt/asus-control/.venv/bin/python /opt/asus-control/daemon.py --config /opt/asus-control/config.yaml
+WorkingDirectory=/opt/asus-control
+ExecStart=/opt/asus-control/.venv/bin/python -m asus_control.daemon --config /opt/asus-control/config/config.yaml
 Restart=on-failure
 RestartSec=5
 

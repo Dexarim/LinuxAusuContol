@@ -95,34 +95,33 @@ if [[ "${UPDATE_ONLY}" -eq 1 ]]; then
 else
     echo "Installing ASUS Control to ${INSTALL_DIR}"
 fi
-install -d "${INSTALL_DIR}" "${INSTALL_DIR}/systemd" "${BIN_DIR}" "${SYSTEMD_DIR}"
+install -d \
+    "${INSTALL_DIR}" \
+    "${INSTALL_DIR}/asus_control" \
+    "${INSTALL_DIR}/config" \
+    "${INSTALL_DIR}/systemd" \
+    "${BIN_DIR}" \
+    "${SYSTEMD_DIR}"
 
 install -m 0644 \
-    "${SOURCE_DIR}/battery.py" \
+    "${SOURCE_DIR}/asus_control/"*.py \
+    "${INSTALL_DIR}/asus_control/"
+
+install -m 0644 \
     "${SOURCE_DIR}/cli.py" \
-    "${SOURCE_DIR}/config.py" \
     "${SOURCE_DIR}/daemon.py" \
-    "${SOURCE_DIR}/dbus_api.py" \
-    "${SOURCE_DIR}/gui_adapter.py" \
-    "${SOURCE_DIR}/logger.py" \
-    "${SOURCE_DIR}/monitor.py" \
-    "${SOURCE_DIR}/notifications.py" \
-    "${SOURCE_DIR}/power.py" \
-    "${SOURCE_DIR}/profile_journal.py" \
-    "${SOURCE_DIR}/profiles.py" \
-    "${SOURCE_DIR}/status.py" \
-    "${SOURCE_DIR}/version.py" \
     "${SOURCE_DIR}/requirements.txt" \
+    "${SOURCE_DIR}/pyproject.toml" \
     "${SOURCE_DIR}/README.md" \
     "${SOURCE_DIR}/install.sh" \
     "${INSTALL_DIR}/"
 
-if [[ -f "${INSTALL_DIR}/config.yaml" && "${FORCE_CONFIG}" -eq 0 ]]; then
-    install -m 0644 "${SOURCE_DIR}/config.yaml" "${INSTALL_DIR}/config.yaml.example"
-    echo "Preserved existing config: ${INSTALL_DIR}/config.yaml"
-    echo "New default config saved as: ${INSTALL_DIR}/config.yaml.example"
+if [[ -f "${INSTALL_DIR}/config/config.yaml" && "${FORCE_CONFIG}" -eq 0 ]]; then
+    install -m 0644 "${SOURCE_DIR}/config/config.yaml" "${INSTALL_DIR}/config/config.yaml.example"
+    echo "Preserved existing config: ${INSTALL_DIR}/config/config.yaml"
+    echo "New default config saved as: ${INSTALL_DIR}/config/config.yaml.example"
 else
-    install -m 0644 "${SOURCE_DIR}/config.yaml" "${INSTALL_DIR}/config.yaml"
+    install -m 0644 "${SOURCE_DIR}/config/config.yaml" "${INSTALL_DIR}/config/config.yaml"
 fi
 
 install -m 0644 \
@@ -137,7 +136,8 @@ After=multi-user.target
 
 [Service]
 Type=simple
-ExecStart=${INSTALL_DIR}/.venv/bin/python ${INSTALL_DIR}/daemon.py --config ${INSTALL_DIR}/config.yaml
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=${INSTALL_DIR}/.venv/bin/python -m asus_control.daemon --config ${INSTALL_DIR}/config/config.yaml
 Restart=on-failure
 RestartSec=5
 
@@ -154,13 +154,15 @@ fi
 
 cat > "${BIN_DIR}/fan" <<EOF
 #!/usr/bin/env bash
-exec "${INSTALL_DIR}/.venv/bin/python" "${INSTALL_DIR}/cli.py" "\$@"
+cd "${INSTALL_DIR}"
+exec "${INSTALL_DIR}/.venv/bin/python" -m asus_control.cli "\$@"
 EOF
 chmod 0755 "${BIN_DIR}/fan"
 
 cat > "${BIN_DIR}/asus-control-daemon" <<EOF
 #!/usr/bin/env bash
-exec "${INSTALL_DIR}/.venv/bin/python" "${INSTALL_DIR}/daemon.py" --config "${INSTALL_DIR}/config.yaml" "\$@"
+cd "${INSTALL_DIR}"
+exec "${INSTALL_DIR}/.venv/bin/python" -m asus_control.daemon --config "${INSTALL_DIR}/config/config.yaml" "\$@"
 EOF
 chmod 0755 "${BIN_DIR}/asus-control-daemon"
 
@@ -196,5 +198,5 @@ Service:
   journalctl -u asus-control.service -f
 
 Config:
-  ${INSTALL_DIR}/config.yaml
+  ${INSTALL_DIR}/config/config.yaml
 EOF

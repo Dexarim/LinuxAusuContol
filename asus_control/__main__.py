@@ -1,8 +1,8 @@
-"""Compatibility wrapper for the packaged CLI."""
+"""Run the ASUS Control CLI with python -m asus_control."""
 
 from __future__ import annotations
 
-from asus_control.cli import main
+from .cli import main
 
 
 if __name__ == "__main__":

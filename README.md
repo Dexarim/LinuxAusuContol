@@ -27,21 +27,28 @@ No Wine, MyASUS, or proprietary ASUS userspace drivers are required.
 
 ```text
 asus-control/
+├── asus_control/
+│   ├── __init__.py
+│   ├── __main__.py
+│   ├── cli.py
+│   ├── daemon.py
+│   ├── monitor.py
+│   ├── profiles.py
+│   ├── battery.py
+│   ├── power.py
+│   ├── config.py
+│   ├── logger.py
+│   ├── status.py
+│   ├── notifications.py
+│   ├── profile_journal.py
+│   ├── dbus_api.py
+│   ├── gui_adapter.py
+│   └── version.py
+├── config/
+│   └── config.yaml
 ├── cli.py
 ├── daemon.py
-├── monitor.py
-├── profiles.py
-├── battery.py
-├── power.py
-├── config.py
-├── logger.py
-├── status.py
-├── notifications.py
-├── profile_journal.py
-├── dbus_api.py
-├── gui_adapter.py
-├── version.py
-├── config.yaml
+├── pyproject.toml
 ├── requirements.txt
 ├── install.sh
 ├── systemd/
@@ -88,6 +95,14 @@ Optional shell alias:
 
 ```bash
 alias fan='/opt/asus-control/.venv/bin/python /opt/asus-control/cli.py'
+```
+
+Direct package execution during development:
+
+```bash
+python -m asus_control
+python -m asus_control.cli status
+python -m asus_control.daemon --once
 ```
 
 ## Usage
@@ -156,8 +171,8 @@ Update an installed copy from the current project directory:
 fan update
 ```
 
-The update command preserves `/opt/asus-control/config.yaml` by default. A fresh
-default config is saved as `/opt/asus-control/config.yaml.example`.
+The update command preserves `/opt/asus-control/config/config.yaml` by default.
+A fresh default config is saved as `/opt/asus-control/config/config.yaml.example`.
 
 Useful update options:
 
@@ -170,7 +185,7 @@ fan update --source /path/to/asus-control --install-dir /opt/asus-control
 
 ## Configuration
 
-All policy settings live in `config.yaml`:
+All policy settings live in `config/config.yaml`:
 
 ```yaml
 battery:
@@ -233,11 +248,11 @@ forcing a GUI dependency.
 
 ## GUI Integration
 
-`gui_adapter.py` contains `AsusControlBackend`, a small facade for future
+`asus_control/gui_adapter.py` contains `AsusControlBackend`, a small facade for future
 PySide6 widgets or models:
 
 ```python
-from gui_adapter import AsusControlBackend
+from asus_control.gui_adapter import AsusControlBackend
 
 backend = AsusControlBackend()
 status = backend.status()
@@ -266,20 +281,21 @@ normal background daemon, the service alone is enough.
 
 ## Architecture
 
-- `profiles.py` discovers and writes the kernel `platform-profile` sysfs files.
-- `monitor.py` reads CPU/GPU temperatures and fan RPMs from `hwmon`.
-- `battery.py` reads battery capacity from `power_supply`.
-- `power.py` detects AC/DC state from `power_supply`.
-- `config.py` loads YAML into typed dataclasses.
-- `status.py` exposes a shared status model for CLI, JSON, D-Bus, and GUI.
-- `notifications.py` wraps optional KDE notifications through `notify-send`.
-- `profile_journal.py` stores profile switch records as JSON Lines.
-- `dbus_api.py` exposes the optional D-Bus service.
-- `gui_adapter.py` provides a future PySide6-friendly backend facade.
-- `version.py` stores shared project metadata.
-- `daemon.py` combines all modules and applies profile policy.
-- `cli.py` provides the `fan` command interface.
-- `logger.py` configures standard Python logging.
+- `asus_control/profiles.py` discovers and writes the kernel `platform-profile` sysfs files.
+- `asus_control/monitor.py` reads CPU/GPU temperatures and fan RPMs from `hwmon`.
+- `asus_control/battery.py` reads battery capacity from `power_supply`.
+- `asus_control/power.py` detects AC/DC state from `power_supply`.
+- `asus_control/config.py` loads YAML into typed dataclasses.
+- `asus_control/status.py` exposes a shared status model for CLI, JSON, D-Bus, and GUI.
+- `asus_control/notifications.py` wraps optional KDE notifications through `notify-send`.
+- `asus_control/profile_journal.py` stores profile switch records as JSON Lines.
+- `asus_control/dbus_api.py` exposes the optional D-Bus service.
+- `asus_control/gui_adapter.py` provides a future PySide6-friendly backend facade.
+- `asus_control/version.py` stores shared project metadata.
+- `asus_control/daemon.py` combines all modules and applies profile policy.
+- `asus_control/cli.py` provides the `fan` command interface.
+- `asus_control/logger.py` configures standard Python logging.
+- Root `cli.py` and `daemon.py` are compatibility wrappers for older commands.
 
 ## Safety
 
