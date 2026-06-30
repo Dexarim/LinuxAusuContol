@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Dict, List
-from PySide6.QtCore import QObject, Signal, Slot, QThreadPool, QRunnable
+from PySide6.QtCore import QObject, Signal, Slot, QThreadPool, QRunnable, SLOT
 from PySide6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
 
 
@@ -38,7 +38,6 @@ class ProfileSetter(QRunnable):
             # Fetch status immediately to reflect change
             self.view_model.trigger_refresh()
         except Exception as exc:
-            # Check if it is a Polkit / Permission error
             err_msg = str(exc)
             if "NotAuthorized" in err_msg or "Permission denied" in err_msg:
                 self.view_model.error_occurred.emit(
@@ -46,6 +45,23 @@ class ProfileSetter(QRunnable):
                 )
             else:
                 self.view_model.error_occurred.emit(err_msg)
+
+
+class ProfileModeSetter(QRunnable):
+    """Runnable to set active profile mode in a background thread."""
+
+    def __init__(self, view_model: AsusControlViewModel, mode: str) -> None:
+        super().__init__()
+        self.view_model = view_model
+        self.mode = mode
+
+    def run(self) -> None:
+        try:
+            self.view_model._set_profile_mode_impl(self.mode)
+            self.view_model.profile_mode_changed.emit(self.mode)
+            self.view_model.trigger_refresh()
+        except Exception as exc:
+            self.view_model.error_occurred.emit(str(exc))
 
 
 class SettingsSaver(QRunnable):
@@ -70,6 +86,7 @@ class AsusControlViewModel(QObject):
 
     status_fetched = Signal(dict)
     profile_changed = Signal(str)
+    profile_mode_changed = Signal(str)
     error_occurred = Signal(str)
     settings_saved = Signal()
 
@@ -81,7 +98,6 @@ class AsusControlViewModel(QObject):
         
         self.thread_pool = QThreadPool.globalInstance()
         
-        # Connect to D-Bus system bus
         connection = QDBusConnection.systemBus()
         if connection.isConnected():
             self.dbus_interface = QDBusInterface(
@@ -93,27 +109,24 @@ class AsusControlViewModel(QObject):
             )
             if self.dbus_interface.isValid():
                 self.use_dbus = True
-                # Connect to StatusChanged signal on System Bus
                 connection.connect(
                     "org.asuslinux.Control",
                     "/org/asuslinux/Control",
                     "org.asuslinux.Control",
                     "StatusChanged",
                     self,
-                    "on_dbus_status_changed"
+                    SLOT("on_dbus_status_changed()")
                 )
-                # Connect to ProfileChanged signal on System Bus
                 connection.connect(
                     "org.asuslinux.Control",
                     "/org/asuslinux/Control",
                     "org.asuslinux.Control",
                     "ProfileChanged",
                     self,
-                    "on_dbus_profile_changed"
+                    SLOT("on_dbus_profile_changed(QString)")
                 )
 
         if not self.use_dbus:
-            # Fallback to direct backend
             from asus_control.gui_adapter import AsusControlBackend
             self.direct_backend = AsusControlBackend()
 
@@ -124,6 +137,10 @@ class AsusControlViewModel(QObject):
     def set_profile(self, profile: str) -> None:
         """Asynchronously change platform profile."""
         self.thread_pool.start(ProfileSetter(self, profile))
+
+    def set_profile_mode(self, mode: str) -> None:
+        """Asynchronously change profile mode (auto or manual)."""
+        self.thread_pool.start(ProfileModeSetter(self, mode))
 
     def save_settings(self, config_data: Dict[str, Any]) -> None:
         """Asynchronously save settings to config file."""
@@ -136,7 +153,6 @@ class AsusControlViewModel(QObject):
             if reply.type() == QDBusMessage.MessageType.ReplyMessage:
                 return json.loads(reply.arguments()[0])
         
-        # Fallback to reading directly via backend
         try:
             from asus_control.profile_journal import read_profile_switches
             from dataclasses import asdict
@@ -168,6 +184,8 @@ class AsusControlViewModel(QObject):
                     "notify": config.daemon.notify,
                     "profile_switch_journal": config.daemon.profile_switch_journal,
                     "log_dir": config.daemon.log_dir,
+                    "profile_mode": config.daemon.profile_mode.value,
+                    "language": config.daemon.language,
                     "performance_apps": list(config.daemon.performance_apps),
                 }
             }
@@ -184,7 +202,6 @@ class AsusControlViewModel(QObject):
                 raise RuntimeError(reply.errorMessage())
             return json.loads(reply.arguments()[0])
         
-        # Fallback
         return self.direct_backend.status().to_dict()
 
     def _set_profile_impl(self, profile: str) -> None:
@@ -196,43 +213,76 @@ class AsusControlViewModel(QObject):
                 raise RuntimeError("Failed to set profile over D-Bus")
         else:
             self.direct_backend.set_profile(profile)
+            # direct backend update triggers manual mode
+            from asus_control.config import load_config, save_config, ProfileMode
+            from dataclasses import replace
+            config = load_config()
+            new_daemon_config = replace(config.daemon, profile_mode=ProfileMode.MANUAL)
+            new_config = replace(config, daemon=new_daemon_config)
+            save_config(new_config)
+            
+            import subprocess
+            subprocess.run(["systemctl", "kill", "-s", "HUP", "asus-control.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def _set_profile_mode_impl(self, mode: str) -> None:
+        if self.use_dbus and self.dbus_interface:
+            reply = self.dbus_interface.call("SetProfileMode", mode)
+            if reply.type() == QDBusMessage.MessageType.ErrorMessage:
+                raise RuntimeError(reply.errorMessage())
+        else:
+            from asus_control.config import load_config, save_config, ProfileMode
+            from dataclasses import replace
+            config = load_config()
+            new_daemon_config = replace(config.daemon, profile_mode=ProfileMode(mode))
+            new_config = replace(config, daemon=new_daemon_config)
+            save_config(new_config)
+            
+            import subprocess
+            subprocess.run(["systemctl", "kill", "-s", "HUP", "asus-control.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def _save_settings_impl(self, config_data: Dict[str, Any]) -> None:
-        from asus_control.config import AppConfig, BatteryConfig, TemperatureConfig, DaemonConfig, save_config
-        from asus_control.profiles import Profile
-        
-        battery = BatteryConfig(
-            on_ac=Profile.from_string(config_data["battery"]["on_ac"]),
-            on_battery=Profile.from_string(config_data["battery"]["on_battery"]),
-            low_battery=Profile.from_string(config_data["battery"]["low_battery"]),
-            low_battery_percent=int(config_data["battery"]["low_battery_percent"]),
-        )
-        temp = TemperatureConfig(
-            quiet_max=int(config_data["temperature"]["quiet_max"]),
-            balanced_max=int(config_data["temperature"]["balanced_max"]),
-            performance_above=int(config_data["temperature"]["performance_above"]),
-        )
-        daemon = DaemonConfig(
-            interval_seconds=float(config_data["daemon"]["interval_seconds"]),
-            notify=bool(config_data["daemon"]["notify"]),
-            profile_switch_journal=bool(config_data["daemon"]["profile_switch_journal"]),
-            log_dir=str(config_data["daemon"]["log_dir"]),
-            performance_apps=tuple(config_data["daemon"]["performance_apps"]),
-        )
-        
-        app_config = AppConfig(battery=battery, temperature=temp, daemon=daemon)
-        save_config(app_config)
-        
-        # Try to reload daemon via systemd (systemctl kill -s HUP asus-control.service)
-        try:
-            import subprocess
-            subprocess.run(
-                ["systemctl", "kill", "-s", "HUP", "asus-control.service"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+        if self.use_dbus and self.dbus_interface:
+            config_json = json.dumps(config_data, ensure_ascii=False)
+            reply = self.dbus_interface.call("SaveConfigJson", config_json)
+            if reply.type() == QDBusMessage.MessageType.ErrorMessage:
+                raise RuntimeError(reply.errorMessage())
+        else:
+            from asus_control.config import AppConfig, BatteryConfig, TemperatureConfig, DaemonConfig, save_config, ProfileMode
+            from asus_control.profiles import Profile
+            
+            battery = BatteryConfig(
+                on_ac=Profile.from_string(config_data["battery"]["on_ac"]),
+                on_battery=Profile.from_string(config_data["battery"]["on_battery"]),
+                low_battery=Profile.from_string(config_data["battery"]["low_battery"]),
+                low_battery_percent=int(config_data["battery"]["low_battery_percent"]),
             )
-        except Exception:
-            pass
+            temp = TemperatureConfig(
+                quiet_max=int(config_data["temperature"]["quiet_max"]),
+                balanced_max=int(config_data["temperature"]["balanced_max"]),
+                performance_above=int(config_data["temperature"]["performance_above"]),
+            )
+            daemon = DaemonConfig(
+                interval_seconds=float(config_data["daemon"]["interval_seconds"]),
+                notify=bool(config_data["daemon"]["notify"]),
+                profile_switch_journal=bool(config_data["daemon"]["profile_switch_journal"]),
+                log_dir=str(config_data["daemon"]["log_dir"]),
+                profile_mode=ProfileMode(config_data["daemon"].get("profile_mode", "auto")),
+                language=str(config_data["daemon"].get("language", "en")),
+                performance_apps=tuple(config_data["daemon"]["performance_apps"]),
+            )
+            
+            app_config = AppConfig(battery=battery, temperature=temp, daemon=daemon)
+            save_config(app_config)
+            
+            try:
+                import subprocess
+                subprocess.run(
+                    ["systemctl", "kill", "-s", "HUP", "asus-control.service"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception:
+                pass
 
     # --- Slots connected to DBus Signals ---
 

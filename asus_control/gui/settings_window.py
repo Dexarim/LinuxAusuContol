@@ -9,7 +9,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QCheckBox,
-    QLineEdit, QFileDialog, QPushButton, QComboBox, QGroupBox, QFormLayout, QMessageBox
+    QLineEdit, QFileDialog, QPushButton, QComboBox, QGroupBox, QFormLayout, QMessageBox,
+    QRadioButton
 )
 
 AUTOSTART_DIR = Path.home() / ".config" / "autostart"
@@ -22,6 +23,7 @@ class SettingsWindow(QWidget):
     def __init__(self, view_model: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.view_model = view_model
+        self.loaded_language = "en"
         
         self._init_ui()
         self.load_settings()
@@ -61,7 +63,16 @@ class SettingsWindow(QWidget):
         
         main_layout.addWidget(daemon_group)
         
-        # 2. Battery & Power policy group
+        # 2. Language selection group
+        lang_group = QGroupBox(self.tr("Language"))
+        lang_layout = QHBoxLayout(lang_group)
+        self.rad_en = QRadioButton("English")
+        self.rad_ru = QRadioButton("Русский")
+        lang_layout.addWidget(self.rad_en)
+        lang_layout.addWidget(self.rad_ru)
+        main_layout.addWidget(lang_group)
+        
+        # 3. Battery & Power policy group
         battery_group = QGroupBox(self.tr("Power Policy Rules"))
         battery_layout = QFormLayout(battery_group)
         
@@ -84,7 +95,7 @@ class SettingsWindow(QWidget):
         
         main_layout.addWidget(battery_group)
         
-        # 3. Temperature policy rules group
+        # 4. Temperature policy rules group
         temp_group = QGroupBox(self.tr("Temperature Threshold Rules"))
         temp_layout = QFormLayout(temp_group)
         
@@ -130,6 +141,13 @@ class SettingsWindow(QWidget):
         # Autostart GUI status
         self.chk_autostart_gui.setChecked(AUTOSTART_FILE.exists())
         
+        # Language
+        self.loaded_language = str(config["daemon"].get("language", "en"))
+        if self.loaded_language == "ru":
+            self.rad_ru.setChecked(True)
+        else:
+            self.rad_en.setChecked(True)
+        
         # Battery
         self.cmb_on_ac.setCurrentIndex(self.cmb_on_ac.findData(config["battery"]["on_ac"]))
         self.cmb_on_battery.setCurrentIndex(self.cmb_on_battery.findData(config["battery"]["on_battery"]))
@@ -147,7 +165,7 @@ class SettingsWindow(QWidget):
             self.txt_log_dir.setText(directory)
 
     def save_settings(self) -> None:
-        # Construct config dict
+        selected_lang = "ru" if self.rad_ru.isChecked() else "en"
         config = {
             "battery": {
                 "on_ac": self.cmb_on_ac.currentData(),
@@ -165,6 +183,8 @@ class SettingsWindow(QWidget):
                 "notify": self.chk_notify.isChecked(),
                 "profile_switch_journal": self.chk_journal.isChecked(),
                 "log_dir": self.txt_log_dir.text().strip(),
+                "profile_mode": self.view_model.fetch_config().get("daemon", {}).get("profile_mode", "auto"),
+                "language": selected_lang,
                 "performance_apps": self.view_model.fetch_config().get("daemon", {}).get("performance_apps", []),
             }
         }
@@ -196,8 +216,18 @@ Icon=preferences-system-power
 
     def on_settings_saved(self) -> None:
         self.btn_save.setEnabled(True)
-        QMessageBox.information(
-            self,
-            self.tr("Settings Saved"),
-            self.tr("Settings saved successfully. Daemon configuration has been reloaded.")
-        )
+        selected_lang = "ru" if self.rad_ru.isChecked() else "en"
+        
+        if selected_lang != self.loaded_language:
+            self.loaded_language = selected_lang
+            QMessageBox.information(
+                self,
+                self.tr("Settings Saved"),
+                self.tr("Settings saved successfully. Please restart the application for the language changes to take effect.")
+            )
+        else:
+            QMessageBox.information(
+                self,
+                self.tr("Settings Saved"),
+                self.tr("Settings saved successfully. Daemon configuration has been reloaded.")
+            )

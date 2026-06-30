@@ -93,7 +93,7 @@ def check_polkit_auth(sender: str) -> None:
             )
 
 
-def build_interface_class(bus_kind: str = "session") -> type:
+def build_interface_class(bus_kind: str = "session", daemon: Any = None) -> type:
     """Create the D-Bus interface class."""
     _, _, service_interface, method, signal = _load_dbus_next()
     from dbus_next import DBusError
@@ -103,7 +103,8 @@ def build_interface_class(bus_kind: str = "session") -> type:
 
         def __init__(self) -> None:
             super().__init__(INTERFACE_NAME)
-            self.controller = PlatformProfileController()
+            self.daemon = daemon
+            self.controller = daemon.controller if daemon else PlatformProfileController()
             self.bus_kind = bus_kind
 
         @method()
@@ -134,12 +135,118 @@ def build_interface_class(bus_kind: str = "session") -> type:
 
                 self.controller.set_profile(next_profile)
                 self.ProfileChanged(next_profile.value)
+                
+                # Automatically switch to MANUAL mode
+                from .config import ProfileMode, load_config, save_config
+                from dataclasses import replace
+                if self.daemon:
+                    new_daemon_config = replace(self.daemon.config.daemon, profile_mode=ProfileMode.MANUAL)
+                    self.daemon.config = replace(self.daemon.config, daemon=new_daemon_config)
+                    save_config(self.daemon.config, self.daemon.config_path)
+                else:
+                    config = load_config()
+                    new_daemon_config = replace(config.daemon, profile_mode=ProfileMode.MANUAL)
+                    new_config = replace(config, daemon=new_daemon_config)
+                    save_config(new_config)
+
                 self.StatusChanged()
                 return True
             except PlatformProfileError as exc:
                 raise DBusError("org.asuslinux.Control.Error.PlatformError", str(exc))
             except ValueError as exc:
                 raise DBusError("org.asuslinux.Control.Error.InvalidArg", str(exc))
+
+        @method()
+        def SetProfileMode(self, mode: "s") -> "b":
+            try:
+                from .config import ProfileMode, load_config, save_config
+                next_mode = ProfileMode(mode.strip().lower())
+                
+                # Check Polkit if running on the system bus
+                if self.bus_kind == "system":
+                    msg = current_dbus_message.get(None)
+                    sender = msg.sender if msg else None
+                    check_polkit_auth(sender)
+
+                from dataclasses import replace
+                if self.daemon:
+                    new_daemon_config = replace(self.daemon.config.daemon, profile_mode=next_mode)
+                    self.daemon.config = replace(self.daemon.config, daemon=new_daemon_config)
+                    save_config(self.daemon.config, self.daemon.config_path)
+                else:
+                    config = load_config()
+                    new_daemon_config = replace(config.daemon, profile_mode=next_mode)
+                    new_config = replace(config, daemon=new_daemon_config)
+                    save_config(new_config)
+
+                self.StatusChanged()
+                return True
+            except Exception as exc:
+                raise DBusError("org.asuslinux.Control.Error.Internal", str(exc))
+
+        @method()
+        def GetProfileMode(self) -> "s":
+            try:
+                if self.daemon:
+                    return self.daemon.config.daemon.profile_mode.value
+                from .config import load_config
+                return load_config().daemon.profile_mode.value
+            except Exception as exc:
+                raise DBusError("org.asuslinux.Control.Error.Internal", str(exc))
+
+        @method()
+        def SaveConfigJson(self, config_json: "s") -> "b":
+            try:
+                # Check Polkit if running on the system bus
+                if self.bus_kind == "system":
+                    msg = current_dbus_message.get(None)
+                    sender = msg.sender if msg else None
+                    check_polkit_auth(sender)
+
+                import json
+                from .config import AppConfig, BatteryConfig, TemperatureConfig, DaemonConfig, save_config, ProfileMode
+                from .profiles import Profile
+                
+                config_data = json.loads(config_json)
+                
+                battery = BatteryConfig(
+                    on_ac=Profile.from_string(config_data["battery"]["on_ac"]),
+                    on_battery=Profile.from_string(config_data["battery"]["on_battery"]),
+                    low_battery=Profile.from_string(config_data["battery"]["low_battery"]),
+                    low_battery_percent=int(config_data["battery"]["low_battery_percent"]),
+                )
+                temp = TemperatureConfig(
+                    quiet_max=int(config_data["temperature"]["quiet_max"]),
+                    balanced_max=int(config_data["temperature"]["balanced_max"]),
+                    performance_above=int(config_data["temperature"]["performance_above"]),
+                )
+                daemon_data = config_data["daemon"]
+                
+                # Keep current in-memory mode or use default
+                current_mode = self.daemon.config.daemon.profile_mode if self.daemon else ProfileMode(daemon_data.get("profile_mode", "auto"))
+                
+                daemon = DaemonConfig(
+                    interval_seconds=float(daemon_data["interval_seconds"]),
+                    notify=bool(daemon_data["notify"]),
+                    profile_switch_journal=bool(daemon_data["profile_switch_journal"]),
+                    log_dir=str(daemon_data["log_dir"]),
+                    profile_mode=current_mode,
+                    language=str(daemon_data.get("language", "en")),
+                    performance_apps=tuple(daemon_data["performance_apps"]),
+                )
+                
+                app_config = AppConfig(battery=battery, temperature=temp, daemon=daemon)
+                
+                if self.daemon:
+                    self.daemon.config = app_config
+                    save_config(app_config, self.daemon.config_path)
+                else:
+                    save_config(app_config)
+                
+                self.StatusChanged()
+                return True
+            except Exception as exc:
+                raise DBusError("org.asuslinux.Control.Error.Internal", str(exc))
 
         @method()
         def GetLogsJson(self, limit: "i") -> "s":

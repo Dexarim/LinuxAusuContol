@@ -152,8 +152,6 @@ class AsusControlDaemon:
     def tick(self) -> None:
         """Perform one policy evaluation and apply profile changes."""
         snapshot = self.snapshot()
-        decision = desired_profile(snapshot, self.config)
-        
         # Emit status change signal if D-Bus is running
         if self.dbus_interface:
             try:
@@ -161,6 +159,11 @@ class AsusControlDaemon:
             except Exception as exc:
                 self.logger.debug("Failed to emit StatusChanged signal: %s", exc)
 
+        from .config import ProfileMode
+        if self.config.daemon.profile_mode == ProfileMode.MANUAL:
+            return
+
+        decision = desired_profile(snapshot, self.config)
         if decision.profile == snapshot.profile:
             return
 
@@ -232,9 +235,9 @@ class AsusControlDaemon:
             self.logger.info("Starting D-Bus service on %s bus...", bus_kind)
             try:
                 from .dbus_api import serve, build_interface_class, BUS_NAME
-                self.dbus_interface = build_interface_class(bus_kind)()
-                # Run D-Bus service as a concurrent task
-                asyncio.create_task(serve(bus_name=BUS_NAME, bus_kind=bus_kind, interface_obj=self.dbus_interface))
+                self.dbus_interface = build_interface_class(bus_kind, daemon=self)()
+                # Run D-Bus service as a concurrent task, keeping a strong reference
+                self.dbus_task = asyncio.create_task(serve(bus_name=BUS_NAME, bus_kind=bus_kind, interface_obj=self.dbus_interface))
                 self.logger.info("D-Bus service registered successfully.")
             except Exception as exc:
                 self.logger.error("Failed to start D-Bus service: %s. Continuing without D-Bus.", exc)

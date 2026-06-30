@@ -190,6 +190,7 @@ def build_parser() -> argparse.ArgumentParser:
     for profile in Profile:
         subparsers.add_parser(profile.value, help=f"Switch to {profile.value} mode")
     subparsers.add_parser("basic", help="Alias for balanced mode")
+    subparsers.add_parser("auto", help="Switch to automatic profile switching mode")
     subparsers.add_parser("status", help="Show current status")
     subparsers.add_parser("version", help="Show application version")
     subparsers.add_parser("json", help="Export current status as JSON")
@@ -264,12 +265,42 @@ def main() -> int:
             print_journal(args.limit)
             return 0
 
+        if args.command == "auto":
+            from .config import load_config, save_config, ProfileMode
+            from dataclasses import replace
+            import subprocess
+            try:
+                config = load_config(args.config)
+                new_daemon_config = replace(config.daemon, profile_mode=ProfileMode.AUTO)
+                new_config = replace(config, daemon=new_daemon_config)
+                save_config(new_config, args.config)
+                subprocess.run(["systemctl", "kill", "-s", "HUP", "asus-control.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print("Automatic profile switching mode enabled.")
+            except Exception as exc:
+                print(f"Error enabling automatic mode: {exc}", file=sys.stderr)
+                return 1
+            return 0
+
         controller = PlatformProfileController()
         profile_commands = {profile.value for profile in Profile} | set(PROFILE_ALIASES)
         if args.command in profile_commands:
             profile = PROFILE_ALIASES.get(args.command, Profile.from_string(args.command))
             controller.set_profile(profile)
             print(f"Profile changed to {profile.value}")
+            
+            # Switch config to MANUAL and reload daemon
+            from .config import load_config, save_config, ProfileMode
+            from dataclasses import replace
+            import subprocess
+            try:
+                config = load_config(args.config)
+                new_daemon_config = replace(config.daemon, profile_mode=ProfileMode.MANUAL)
+                new_config = replace(config, daemon=new_daemon_config)
+                save_config(new_config, args.config)
+                # Signal daemon
+                subprocess.run(["systemctl", "kill", "-s", "HUP", "asus-control.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as exc:
+                print(f"Warning: could not notify daemon: {exc}", file=sys.stderr)
             return 0
 
         if args.command == "status":

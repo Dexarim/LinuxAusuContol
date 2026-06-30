@@ -34,6 +34,10 @@ class ControlStatus:
     amd_gpu_usage_percent: int | None
     nvidia_gpu_usage_percent: int | None
     nvidia_status: str | None
+    
+    # Mode and language for Release v0.2.1
+    profile_mode: str
+    language: str
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable status mapping."""
@@ -171,6 +175,7 @@ def _get_nvidia_status_and_usage() -> tuple[str | None, int | None]:
 
 def collect_status(controller: PlatformProfileController | None = None) -> ControlStatus:
     """Collect the current laptop status."""
+    from .config import load_config
     profile_controller = controller or PlatformProfileController()
     hardware = get_hardware_status()
     power = get_power_status()
@@ -200,4 +205,8 @@ def collect_status(controller: PlatformProfileController | None = None) -> Contr
         amd_gpu_usage_percent=amd_gpu,
         nvidia_gpu_usage_percent=nv_gpu,
         nvidia_status=nv_status,
+        
+        # Mode and language
+        profile_mode=load_config().daemon.profile_mode.value,
+        language=load_config().daemon.language,
     )

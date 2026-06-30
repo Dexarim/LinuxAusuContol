@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, QSettings
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QVBoxLayout, QWidget, QStatusBar, QMessageBox, QLabel
@@ -20,12 +20,14 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.view_model = AsusControlViewModel()
+        self.settings = QSettings("ASUS Control", "ASUS Control")
         
         self.setWindowIcon(QIcon.fromTheme("preferences-system-power", QIcon(":/icons/app.png")))
         self.resize(800, 600)
         
         self._init_ui()
         self._init_timer()
+        self.restore_geometry()
         
         # Subscribe to error signal
         self.view_model.error_occurred.connect(self.show_error)
@@ -40,17 +42,17 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"ASUS Control ({mode_str})")
         
         # Central widget and tabs
-        tabs = QTabWidget()
+        self.tabs = QTabWidget()
         
         self.dashboard_tab = DashboardWidget(self.view_model)
         self.settings_tab = SettingsWindow(self.view_model)
         self.logs_tab = LogsWindow(self.view_model)
         
-        tabs.addTab(self.dashboard_tab, QIcon.fromTheme("utilities-system-monitor"), self.tr("Dashboard"))
-        tabs.addTab(self.logs_tab, QIcon.fromTheme("utilities-log-viewer"), self.tr("Logs"))
-        tabs.addTab(self.settings_tab, QIcon.fromTheme("preferences-system"), self.tr("Settings"))
+        self.tabs.addTab(self.dashboard_tab, QIcon.fromTheme("utilities-system-monitor"), self.tr("Dashboard"))
+        self.tabs.addTab(self.logs_tab, QIcon.fromTheme("utilities-log-viewer"), self.tr("Logs"))
+        self.tabs.addTab(self.settings_tab, QIcon.fromTheme("preferences-system"), self.tr("Settings"))
         
-        self.setCentralWidget(tabs)
+        self.setCentralWidget(self.tabs)
         
         # Status Bar
         self.status_bar = QStatusBar()
@@ -74,18 +76,32 @@ class MainWindow(QMainWindow):
             
         self.timer.start(int(interval * 1000))
 
+    def restore_geometry(self) -> None:
+        """Restore window size, position, and active tab."""
+        geom = self.settings.value("geometry")
+        if geom:
+            self.restoreGeometry(geom)
+        
+        tab_idx = self.settings.value("active_tab")
+        if tab_idx is not None:
+            try:
+                self.tabs.setCurrentIndex(int(tab_idx))
+            except (ValueError, TypeError):
+                pass
+
+    def closeEvent(self, event) -> None:
+        """Save window size, position, and active tab on exit."""
+        self.settings.setValue("geometry", self.saveGeometry())
+        self.settings.setValue("active_tab", self.tabs.currentIndex())
+        super().closeEvent(event)
+
     def show_error(self, message: str) -> None:
         """Show error message dialog."""
-        # Print to stderr for console visibility
         import sys
         print(f"GUI Error: {message}", file=sys.stderr)
         
         self.status_lbl.setText(self.tr("Error: {error}").format(error=message))
         self.status_lbl.setStyleSheet("color: red;")
-        
-        # Stop spamming dialog box on every timer tick, only show dialog box for major errors if needed
-        # We will just show a nice QMessageBox if we try to set a profile and it fails
-        # So we can keep it in the status bar for background errors (like a sleeping GPU)
 
     def update_status_bar(self, status: dict) -> None:
         self.status_lbl.setStyleSheet("")

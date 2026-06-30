@@ -1,191 +1,124 @@
 # Linux ASUS Control
 
-Linux ASUS Control is a small autonomous control utility for ASUS laptops using
-standard Linux kernel interfaces: `platform-profile`, `hwmon`, and
-`power_supply`. It is intended for Arch Linux, CachyOS, KDE Plasma 6, and the
-ASUS Vivobook M6500QC.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-0.2.1-blue.svg)](#)
 
-No Wine, MyASUS, or proprietary ASUS userspace drivers are required.
+Linux ASUS Control is an autonomous power profile daemon and graphical control center for ASUS laptops (and other ACPI-compatible laptops) using standard Linux kernel interfaces: `platform-profile`, `hwmon`, and `power_supply`.
 
-## Features
+It requires no Wine, MyASUS, or proprietary ASUS userspace drivers.
 
-- CLI profile switching: `quiet`, `balanced`, `performance`
-- MyASUS-style `basic` alias for Linux `balanced`
-- Status output for profile, temperatures, fans, AC/DC power, and battery
-- Live monitor mode
-- Rich table output for `status`, `monitor`, and `watch`
-- Background daemon with YAML policy
-- Automatic profile switching by AC state, low battery, temperature, and running apps
-- KDE notifications through `notify-send` when available
-- Profile switch journal as JSON Lines
-- JSON status export
-- Logging to `~/.local/share/asus-control/logs/`
-- Optional D-Bus API for future GUI frontends
-- GUI-ready backend facade for a future PySide6 application
+---
 
-## Project Layout
+## 🚀 Key Features
+
+* **Desktop GUI**: Sleek PySide6 / Qt6 dashboard that adapts to KDE Plasma Light/Dark themes and provides real-time system monitoring.
+* **Hardware Abstraction Layer (HAL)**: Decoupled design supporting both ASUS-specific WMI interfaces (`asus-nb-wmi`) and Generic ACPI platform profiles.
+* **CLI Controller**: Fully featured CLI for status querying, JSON export, log viewing, and profile switching.
+* **Autonomous Daemon**: Background daemon running an event-driven automation policy to automatically select the optimal profile based on AC state, battery capacity, CPU/GPU temperatures, and running applications (e.g., games).
+* **D-Bus System Bus Integration**: Runs as a privileged system bus daemon `org.asuslinux.Control` utilizing Polkit checks for secure profile modifications.
+* **Multi-Language Support**: Complete English and Russian localization.
+* **KDE Integration**: Desktop notifications via `notify-send`.
+
+---
+
+## 📂 Project Structure
 
 ```text
-asus-control/
+AsusControl/
 ├── asus_control/
-│   ├── __init__.py
-│   ├── __main__.py
-│   ├── cli.py
-│   ├── daemon.py
-│   ├── monitor.py
-│   ├── profiles.py
-│   ├── battery.py
-│   ├── power.py
-│   ├── config.py
-│   ├── logger.py
-│   ├── status.py
-│   ├── notifications.py
-│   ├── profile_journal.py
-│   ├── dbus_api.py
-│   ├── gui_adapter.py
-│   └── version.py
+│   ├── gui/                    # PySide6 Qt6 GUI thin client
+│   │   ├── translations/       # English & Russian TS/QM files
+│   │   ├── __init__.py
+│   │   ├── main_window.py
+│   │   ├── dashboard.py
+│   │   ├── view_model.py
+│   │   └── ...
+│   ├── cli.py                  # CLI Subcommands & Formatters
+│   ├── daemon.py               # Asynchronous Background Automation
+│   ├── dbus_api.py             # Polkit-authorized D-Bus System Bus
+│   ├── hardware_abstraction.py # HAL interface (ASUS vs Generic ACPI)
+│   ├── status.py               # Immutable system metrics collectors
+│   ├── profiles.py             # Platform profile controller
+│   └── ...
 ├── config/
-│   └── config.yaml
-├── cli.py
-├── daemon.py
-├── pyproject.toml
-├── requirements.txt
-├── install.sh
+│   └── config.yaml             # YAML Automation Policy Configuration
 ├── systemd/
-│   ├── asus-control.service
-│   └── asus-control.timer
+│   ├── asus-control.service    # Systemd daemon service
+│   ├── org.asuslinux.Control.conf # D-Bus system policy
+│   └── org.asuslinux.control.policy # Polkit action configurations
+├── install.sh                  # Interactive system installer script
 └── README.md
 ```
 
-## Installation
+---
 
-Recommended installer:
+## 🛠️ Installation
 
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-Enable and start the daemon immediately:
-
-```bash
-./install.sh --enable
-```
-
-The installer copies the project to `/opt/asus-control`, creates
-`/opt/asus-control/.venv`, installs Python dependencies there, creates the
-`fan` command in `/usr/local/bin`, installs systemd units, and runs
-`systemctl daemon-reload`.
-
-Install Python dependencies:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-```
-
-For a system install:
-
+Clone the repository and run the installation script:
 ```bash
 ./install.sh
 ```
-
-Optional shell alias:
-
+To update an existing installation without overwriting your `config.yaml`:
 ```bash
-alias fan='/opt/asus-control/.venv/bin/python /opt/asus-control/cli.py'
+./install.sh --update
 ```
 
-Direct package execution during development:
+This will:
+1. Copy project files to `/opt/asus-control/`
+2. Create a virtual environment and install dependencies (`PySide6`, `dbus-next`, `PyYAML`, `rich`)
+3. Install system-wide Polkit and D-Bus policies
+4. Symlink `/usr/local/bin/fan` to target the virtual environment CLI wrapper
+5. Install and enable the systemd unit `asus-control.service`
+
+---
+
+## 💻 CLI Usage
+
+All controls are unified under the `fan` executable.
 
 ```bash
-python -m asus_control
-python -m asus_control.cli status
-python -m asus_control.daemon --once
-```
+# Switch profiles manually (sets mode to MANUAL, disabling daemon automatic triggers)
+fan quiet
+fan balanced    # (or: fan basic)
+fan performance
 
-## Usage
+# Switch back to automatic policy execution
+fan auto
 
-Show current status:
-
-```bash
-fan
+# Show current snapshot
 fan status
-```
 
-Show version:
-
-```bash
-fan version
-fan --version
-```
-
-Example:
-
-```text
-Profile : balanced
-CPU Temp: 55°C
-GPU Temp: 48°C
-CPU Fan : 2850 RPM
-GPU Fan : 2200 RPM
-Power   : AC
-Battery : 100%
-```
-
-Switch profiles:
-
-```bash
-sudo fan quiet
-sudo fan basic
-sudo fan balanced
-sudo fan performance
-```
-
-`basic` is an alias for `balanced`, because Linux `platform-profile` exposes
-`quiet`, `balanced`, and `performance` on this laptop.
-
-Live monitor:
-
-```bash
+# Live status monitor
 fan monitor
-fan watch
-```
 
-JSON export:
-
-```bash
+# Export current metrics as JSON
 fan json
+
+# View profile change logs
+fan journal --limit 10
 ```
 
-Profile switch journal:
+---
 
+## 🖥️ Desktop GUI
+
+Launch the graphical dashboard:
 ```bash
-fan journal
-fan journal --limit 50
+fan gui
 ```
 
-Update an installed copy from the current project directory:
+### GUI Design
+* **Dashboard Tab**: Displays a sleek power profile switcher, real-time battery status, system temperatures (CPU, GPU, NVMe SSD), fan speeds, and hardware utilization (CPU, RAM, AMD, NVIDIA).
+* **Logs Tab**: Lists the profile switches history with timestamps and reasons.
+* **Settings Tab**: Allows editing daemon update intervals, autostart (`~/.config/autostart/asus-control-gui.desktop`), logging directories, notification preferences, AC/battery profile maps, temperature thresholds, and language preferences.
+* **Locales**: Toggle between English and Русский from settings.
+* **Geometry Preservation**: QSettings preserves window position, sizing, active tab, and splitter positions.
 
-```bash
-fan update
-```
+---
 
-The update command preserves `/opt/asus-control/config/config.yaml` by default.
-A fresh default config is saved as `/opt/asus-control/config/config.yaml.example`.
+## ⚙️ Configuration (`config.yaml`)
 
-Useful update options:
-
-```bash
-fan update --skip-deps
-fan update --force-config
-fan update --enable
-fan update --source /path/to/asus-control --install-dir /opt/asus-control
-```
-
-## Configuration
-
-All policy settings live in `config/config.yaml`:
+The daemon evaluates system state every tick according to rules declared in `/etc/opt/asus-control/config.yaml` or `/opt/asus-control/config/config.yaml`:
 
 ```yaml
 battery:
@@ -200,114 +133,28 @@ temperature:
   performance_above: 75
 
 daemon:
-  interval_seconds: 5
+  interval_seconds: 5.0
   notify: true
   profile_switch_journal: true
+  log_dir: ""
+  profile_mode: auto          # auto or manual
+  language: en                # en or ru
   performance_apps:
     - steam
-    - steamwebhelper
-    - prismlauncher
-    - blender
-    - lutris
-    - heroic
-    - gamescope
     - wine
-    - proton
+    - lutris
 ```
 
-Policy:
+---
 
-- On AC power: use `on_ac`
-- On battery below `low_battery_percent`: use `low_battery`
-- Otherwise on battery: use `on_battery`
-- If CPU or GPU temperature reaches `performance_above`, raise to `performance`
-- If configured performance applications are running, raise to `performance`
+## 🔒 Security & Polkit
 
-The daemon only raises profiles for heat or performance apps. It does not lower
-below the profile selected by the power and battery policy.
+Changing the platform profile requires administrator privileges. Instead of running the GUI as root or using `sudo` aliases, ASUS Control registers a Polkit action `org.asuslinux.control.set-profile`.
 
-## D-Bus API
+When calling `SetProfile` via the D-Bus system service, the caller's bus connection is authorized using `pkcheck`. If you belong to the local active session, the action is allowed without a password prompt.
 
-The optional D-Bus service is intended for future GUI integration:
+---
 
-```bash
-fan dbus --bus session
-```
+## 📄 License
 
-It exports:
-
-- Bus name: `org.asuslinux.Control`
-- Object path: `/org/asuslinux/Control`
-- Interface: `org.asuslinux.Control`
-- Methods: `GetStatusJson`, `GetProfile`, `SetProfile`
-- Signal: `ProfileChanged`
-
-For a root-controlled system service, run it on the system bus and add a D-Bus
-policy file later. The current implementation keeps the API ready without
-forcing a GUI dependency.
-
-## GUI Integration
-
-`asus_control/gui_adapter.py` contains `AsusControlBackend`, a small facade for future
-PySide6 widgets or models:
-
-```python
-from asus_control.gui_adapter import AsusControlBackend
-
-backend = AsusControlBackend()
-status = backend.status()
-backend.set_profile("balanced")
-```
-
-## systemd
-
-The provided service assumes the project is installed to `/opt/asus-control`.
-
-```bash
-sudo cp systemd/asus-control.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now asus-control.service
-```
-
-Check logs:
-
-```bash
-journalctl -u asus-control.service -f
-tail -f ~/.local/share/asus-control/logs/asus-control.log
-```
-
-The timer is included for users who prefer periodic one-shot execution. For the
-normal background daemon, the service alone is enough.
-
-## Architecture
-
-- `asus_control/profiles.py` discovers and writes the kernel `platform-profile` sysfs files.
-- `asus_control/monitor.py` reads CPU/GPU temperatures and fan RPMs from `hwmon`.
-- `asus_control/battery.py` reads battery capacity from `power_supply`.
-- `asus_control/power.py` detects AC/DC state from `power_supply`.
-- `asus_control/config.py` loads YAML into typed dataclasses.
-- `asus_control/status.py` exposes a shared status model for CLI, JSON, D-Bus, and GUI.
-- `asus_control/notifications.py` wraps optional KDE notifications through `notify-send`.
-- `asus_control/profile_journal.py` stores profile switch records as JSON Lines.
-- `asus_control/dbus_api.py` exposes the optional D-Bus service.
-- `asus_control/gui_adapter.py` provides a future PySide6-friendly backend facade.
-- `asus_control/version.py` stores shared project metadata.
-- `asus_control/daemon.py` combines all modules and applies profile policy.
-- `asus_control/cli.py` provides the `fan` command interface.
-- `asus_control/logger.py` configures standard Python logging.
-- Root `cli.py` and `daemon.py` are compatibility wrappers for older commands.
-
-## Safety
-
-The project uses `pathlib`, typed dataclasses, enums, and standard Python
-logging. It does not execute shell commands with `shell=True`. `subprocess` is
-only used for optional `notify-send` notifications.
-
-Writing `platform-profile` usually requires root privileges:
-
-```bash
-echo performance | sudo tee /sys/devices/platform/asus-nb-wmi/platform-profile/platform-profile-0/profile
-```
-
-The CLI and daemon perform the same write through Python file I/O, so profile
-changes may need `sudo` unless permissions are configured separately.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

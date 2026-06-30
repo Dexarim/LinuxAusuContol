@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,13 @@ from .profiles import Profile
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
+
+
+class ProfileMode(str, Enum):
+    """Profile control modes."""
+
+    AUTO = "auto"
+    MANUAL = "manual"
 
 
 @dataclass(frozen=True)
@@ -40,6 +48,8 @@ class DaemonConfig:
     notify: bool = True
     profile_switch_journal: bool = True
     log_dir: str = ""
+    profile_mode: ProfileMode = ProfileMode.AUTO
+    language: str = "en"
     performance_apps: tuple[str, ...] = (
         "steam",
         "steamwebhelper",
@@ -74,6 +84,16 @@ def _profile(value: Any, fallback: Profile) -> Profile:
     if value is None:
         return fallback
     return Profile.from_string(str(value))
+
+
+def _profile_mode(value: Any, fallback: ProfileMode) -> ProfileMode:
+    if value is None:
+        return fallback
+    val_str = str(value).strip().lower()
+    for mode in ProfileMode:
+        if mode.value == val_str:
+            return mode
+    return fallback
 
 
 def _int(value: Any, fallback: int) -> int:
@@ -161,6 +181,8 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             default_daemon.profile_switch_journal,
         ),
         log_dir=str(daemon_raw.get("log_dir", "")),
+        profile_mode=_profile_mode(daemon_raw.get("profile_mode"), default_daemon.profile_mode),
+        language=str(daemon_raw.get("language", default_daemon.language)),
         performance_apps=apps,
     )
 
@@ -197,6 +219,8 @@ def save_config(config: AppConfig, path: Path = DEFAULT_CONFIG_PATH) -> None:
             "notify": config.daemon.notify,
             "profile_switch_journal": config.daemon.profile_switch_journal,
             "log_dir": config.daemon.log_dir,
+            "profile_mode": config.daemon.profile_mode.value,
+            "language": config.daemon.language,
             "performance_apps": list(config.daemon.performance_apps),
         }
     }

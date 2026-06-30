@@ -7,7 +7,7 @@ This folder contains translation source files (`.ts`) and compiled translation b
 ### 1. Extract strings from source code into a `.ts` file:
 To update or create a Russian translation file:
 ```bash
-.venv/bin/pyside6-lupdate asus_control/gui/ -ts asus_control/gui/translations/asus-control_ru.ts
+.venv/bin/pyside6-lupdate asus_control/gui/*.py -ts asus_control/gui/translations/asus-control_ru.ts
 ```
 
 ### 2. Translate strings:

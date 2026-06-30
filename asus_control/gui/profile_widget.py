@@ -1,27 +1,25 @@
-"""Widget for choosing the active platform profile."""
+"""Widget for choosing the active platform profile and auto/manual modes."""
 
 from __future__ import annotations
 
 from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QMessageBox, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QCheckBox, QWidget
 
 
 class ProfileWidget(QFrame):
-    """Widget allowing the user to select Quiet, Balanced, or Performance profile."""
+    """Widget allowing the user to select Quiet, Balanced, or Performance profile and toggle Auto Mode."""
 
     def __init__(self, view_model: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.view_model = view_model
         
-        # Native styling
         self.setFrameShape(QFrame.StyledPanel)
         self.setFrameShadow(QFrame.Raised)
         
         self._init_ui()
         
-        # Bind events
         self.view_model.status_fetched.connect(self.update_status)
         self.view_model.profile_changed.connect(self.update_active_profile)
 
@@ -64,20 +62,28 @@ class ProfileWidget(QFrame):
         btn_layout.addWidget(self.btn_performance)
         layout.addLayout(btn_layout)
 
+        # Auto/Manual mode toggle
+        self.chk_auto = QCheckBox(self.tr("Automatic Profile Switching (Auto Mode)"))
+        self.chk_auto.setStyleSheet("margin-top: 5px;")
+        self.chk_auto.clicked.connect(self.toggle_auto_mode)
+        layout.addWidget(self.chk_auto)
+
     def set_profile(self, profile: str) -> None:
-        # Disable buttons temporarily during setting
         self.setEnabled(False)
         self.view_model.set_profile(profile)
+
+    def toggle_auto_mode(self, checked: bool) -> None:
+        self.setEnabled(False)
+        mode = "auto" if checked else "manual"
+        self.view_model.set_profile_mode(mode)
 
     def update_active_profile(self, profile: str) -> None:
         self.setEnabled(True)
         
-        # Uncheck all
         self.btn_quiet.setChecked(False)
         self.btn_balanced.setChecked(False)
         self.btn_performance.setChecked(False)
         
-        # Highlight active
         if profile == "quiet":
             self.btn_quiet.setChecked(True)
         elif profile == "balanced":
@@ -88,3 +94,12 @@ class ProfileWidget(QFrame):
     def update_status(self, status: dict) -> None:
         profile = status.get("profile", "")
         self.update_active_profile(profile)
+        
+        # Update Auto Mode checkbox
+        mode = status.get("profile_mode", "auto")
+        is_auto = (mode == "auto")
+        
+        self.chk_auto.blockSignals(True)
+        self.chk_auto.setChecked(is_auto)
+        self.chk_auto.blockSignals(False)
+        self.setEnabled(True)
