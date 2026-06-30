@@ -39,6 +39,7 @@ class DaemonConfig:
     interval_seconds: float = 5.0
     notify: bool = True
     profile_switch_journal: bool = True
+    log_dir: str = ""
     performance_apps: tuple[str, ...] = (
         "steam",
         "steamwebhelper",
@@ -159,6 +160,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             daemon_raw.get("profile_switch_journal"),
             default_daemon.profile_switch_journal,
         ),
+        log_dir=str(daemon_raw.get("log_dir", "")),
         performance_apps=apps,
     )
 
@@ -167,3 +169,37 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
         temperature=temp_config,
         daemon=daemon_config,
     )
+
+
+def save_config(config: AppConfig, path: Path = DEFAULT_CONFIG_PATH) -> None:
+    """Save configuration back to YAML file."""
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyYAML is required to write config.yaml. Install requirements.txt first."
+        ) from exc
+
+    data = {
+        "battery": {
+            "on_ac": config.battery.on_ac.value,
+            "on_battery": config.battery.on_battery.value,
+            "low_battery": config.battery.low_battery.value,
+            "low_battery_percent": config.battery.low_battery_percent,
+        },
+        "temperature": {
+            "quiet_max": config.temperature.quiet_max,
+            "balanced_max": config.temperature.balanced_max,
+            "performance_above": config.temperature.performance_above,
+        },
+        "daemon": {
+            "interval_seconds": config.daemon.interval_seconds,
+            "notify": config.daemon.notify,
+            "profile_switch_journal": config.daemon.profile_switch_journal,
+            "log_dir": config.daemon.log_dir,
+            "performance_apps": list(config.daemon.performance_apps),
+        }
+    }
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")

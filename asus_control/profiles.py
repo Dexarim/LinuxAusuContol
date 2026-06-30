@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .hardware_abstraction import HardwareProvider
 
 
 SYS_PLATFORM_PROFILE_ROOT = Path("/sys/devices/platform/asus-nb-wmi")
@@ -48,68 +52,23 @@ class PlatformProfileError(RuntimeError):
 
 
 class PlatformProfileController:
-    """Read and write ASUS platform profiles."""
+    """Read and write platform profiles (delegates to the active HardwareProvider)."""
 
-    def __init__(self, paths: PlatformProfilePaths | None = None) -> None:
-        self.paths = paths or self.discover()
-
-    @staticmethod
-    def discover() -> PlatformProfilePaths:
-        """Find platform-profile files for asus-nb-wmi."""
-        candidates = sorted(
-            SYS_PLATFORM_PROFILE_ROOT.glob("platform-profile/platform-profile-*")
-        )
-        for root in candidates:
-            profile = root / "profile"
-            choices = root / "choices"
-            if profile.exists() and choices.exists():
-                return PlatformProfilePaths(root=root, profile=profile, choices=choices)
-
-        raise PlatformProfileError(
-            "platform-profile sysfs interface was not found. "
-            "Expected /sys/devices/platform/asus-nb-wmi/platform-profile/..."
-        )
+    def __init__(self, provider: HardwareProvider | None = None) -> None:
+        from .hardware_abstraction import HardwareRegistry
+        self.provider = provider or HardwareRegistry().get_provider()
 
     def available_profiles(self) -> list[Profile]:
-        """Return profiles supported by the current kernel driver."""
-        try:
-            raw_choices = self.paths.choices.read_text(encoding="utf-8").split()
-        except OSError as exc:
-            raise PlatformProfileError(f"Cannot read {self.paths.choices}: {exc}") from exc
-
-        profiles: list[Profile] = []
-        for value in raw_choices:
-            try:
-                profiles.append(Profile.from_string(value))
-            except ValueError:
-                continue
-        return profiles
+        """Return profiles supported by the current hardware provider."""
+        return self.provider.get_available_profiles()
 
     def get_profile(self) -> Profile:
         """Read the active platform profile."""
-        try:
-            return Profile.from_string(self.paths.profile.read_text(encoding="utf-8"))
-        except OSError as exc:
-            raise PlatformProfileError(f"Cannot read {self.paths.profile}: {exc}") from exc
+        return self.provider.get_profile()
 
     def set_profile(self, profile: Profile) -> None:
         """Set the active platform profile."""
-        available = self.available_profiles()
-        if profile not in available:
-            values = ", ".join(item.value for item in available) or "none"
-            raise PlatformProfileError(
-                f"Profile {profile.value!r} is not available. Available: {values}"
-            )
-
-        try:
-            self.paths.profile.write_text(f"{profile.value}\n", encoding="utf-8")
-        except PermissionError as exc:
-            raise PlatformProfileError(
-                f"Permission denied while writing {self.paths.profile}. "
-                "Run with sudo or install a suitable polkit/systemd rule."
-            ) from exc
-        except OSError as exc:
-            raise PlatformProfileError(f"Cannot write {self.paths.profile}: {exc}") from exc
+        self.provider.set_profile(profile)
 
 
 def max_profile(left: Profile, right: Profile) -> Profile:

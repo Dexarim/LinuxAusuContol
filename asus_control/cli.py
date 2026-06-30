@@ -199,6 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     monitor_parser.add_argument("--interval", type=float, default=1.0)
     watch_parser = subparsers.add_parser("watch", help="Alias for monitor")
     watch_parser.add_argument("--interval", type=float, default=1.0)
+    subparsers.add_parser("gui", help="Launch the Desktop GUI application")
     dbus_parser = subparsers.add_parser("dbus", help="Run the optional D-Bus API")
     dbus_parser.add_argument("--bus", choices=("session", "system"), default="session")
     dbus_parser.add_argument("--bus-name", default="org.asuslinux.Control")
@@ -292,6 +293,15 @@ def main() -> int:
                 use_rich=not args.no_rich,
             )
             return 0
+
+        if args.command == "gui":
+            try:
+                from .gui import run_gui
+                return run_gui()
+            except ImportError as exc:
+                print(f"Error loading GUI modules: {exc}", file=sys.stderr)
+                print("Make sure PySide6 is installed (pip install PySide6).", file=sys.stderr)
+                return 1
     except KeyboardInterrupt:
         return 130
     except PlatformProfileError as exc:

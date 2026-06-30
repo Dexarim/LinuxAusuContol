@@ -11,14 +11,14 @@ LOG_FILE = LOG_DIR / "asus-control.log"
 FALLBACK_LOG_DIR = Path("/tmp") / "asus-control" / "logs"
 
 
-def setup_logging(name: str = "asus-control") -> logging.Logger:
+def setup_logging(name: str = "asus-control", log_dir: Path | str | None = None) -> logging.Logger:
     """Configure standard logging for CLI and daemon."""
-    log_dir = LOG_DIR
+    resolved_dir = Path(log_dir) if log_dir else LOG_DIR
     try:
-        log_dir.mkdir(parents=True, exist_ok=True)
+        resolved_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
-        log_dir = FALLBACK_LOG_DIR
-        log_dir.mkdir(parents=True, exist_ok=True)
+        resolved_dir = FALLBACK_LOG_DIR
+        resolved_dir.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
@@ -29,7 +29,7 @@ def setup_logging(name: str = "asus-control") -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    file_handler = logging.FileHandler(log_dir / LOG_FILE.name, encoding="utf-8")
+    file_handler = logging.FileHandler(resolved_dir / LOG_FILE.name, encoding="utf-8")
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 

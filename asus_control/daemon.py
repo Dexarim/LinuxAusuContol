@@ -1,12 +1,15 @@
-"""Background automation daemon for ASUS platform profiles."""
+"""Background automation daemon for ASUS platform profiles with integrated D-Bus service."""
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
+import signal
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .battery import BatteryStatus, get_battery_status
 from .config import AppConfig, DEFAULT_CONFIG_PATH, load_config
@@ -117,10 +120,22 @@ class AsusControlDaemon:
         config: AppConfig,
         controller: PlatformProfileController,
         logger: logging.Logger,
+        config_path: Path = DEFAULT_CONFIG_PATH,
     ) -> None:
         self.config = config
         self.controller = controller
         self.logger = logger
+        self.config_path = config_path
+        self.dbus_interface: Any = None
+
+    def reload_config(self) -> None:
+        """Reload configuration from file."""
+        self.logger.info("SIGHUP received. Reloading configuration from %s...", self.config_path)
+        try:
+            self.config = load_config(self.config_path)
+            self.logger.info("Configuration reloaded successfully.")
+        except Exception as exc:
+            self.logger.error("Failed to reload configuration: %s", exc)
 
     def snapshot(self) -> SystemSnapshot:
         """Read all inputs required by the automation policy."""
@@ -138,6 +153,14 @@ class AsusControlDaemon:
         """Perform one policy evaluation and apply profile changes."""
         snapshot = self.snapshot()
         decision = desired_profile(snapshot, self.config)
+        
+        # Emit status change signal if D-Bus is running
+        if self.dbus_interface:
+            try:
+                self.dbus_interface.StatusChanged()
+            except Exception as exc:
+                self.logger.debug("Failed to emit StatusChanged signal: %s", exc)
+
         if decision.profile == snapshot.profile:
             return
 
@@ -171,9 +194,17 @@ class AsusControlDaemon:
             )
         notify_send("ASUS Control", message, self.config.daemon.notify)
 
+        if self.dbus_interface:
+            try:
+                self.dbus_interface.ProfileChanged(decision.profile.value)
+            except Exception as exc:
+                self.logger.debug("Failed to emit ProfileChanged signal: %s", exc)
+
     def run_forever(self) -> None:
-        """Run daemon loop until interrupted by systemd or user."""
-        self.logger.info("asus-control daemon started")
+        """Run synchronous daemon loop (fallback)."""
+        self.logger.info("asus-control daemon started (sync fallback)")
+        # Register SIGHUP signal handler
+        signal.signal(signal.SIGHUP, lambda sig, frame: self.reload_config())
         while True:
             try:
                 self.tick()
@@ -182,6 +213,43 @@ class AsusControlDaemon:
             except Exception:
                 self.logger.exception("Unexpected daemon error")
             time.sleep(self.config.daemon.interval_seconds)
+
+    async def run_forever_async(self, bus_kind: str = "system") -> None:
+        """Run async daemon loop with integrated D-Bus service."""
+        self.logger.info("asus-control daemon starting (async)...")
+
+        # Register SIGHUP signal handler in asyncio loop
+        try:
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGHUP, self.reload_config)
+            self.logger.debug("Registered SIGHUP handler in event loop.")
+        except (NotImplementedError, RuntimeError):
+            # Fallback for Windows/certain event loops without add_signal_handler
+            signal.signal(signal.SIGHUP, lambda sig, frame: self.reload_config())
+
+        # Start D-Bus service if requested
+        if bus_kind != "none":
+            self.logger.info("Starting D-Bus service on %s bus...", bus_kind)
+            try:
+                from .dbus_api import serve, build_interface_class, BUS_NAME
+                self.dbus_interface = build_interface_class(bus_kind)()
+                # Run D-Bus service as a concurrent task
+                asyncio.create_task(serve(bus_name=BUS_NAME, bus_kind=bus_kind, interface_obj=self.dbus_interface))
+                self.logger.info("D-Bus service registered successfully.")
+            except Exception as exc:
+                self.logger.error("Failed to start D-Bus service: %s. Continuing without D-Bus.", exc)
+
+        self.logger.info("Automation daemon ticker started.")
+        while True:
+            try:
+                self.tick()
+            except PlatformProfileError as exc:
+                self.logger.error("%s", exc)
+            except Exception:
+                self.logger.exception("Unexpected daemon error")
+            
+            # Use float sleep time from config
+            await asyncio.sleep(self.config.daemon.interval_seconds)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -198,6 +266,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run one automation tick and exit",
     )
+    parser.add_argument(
+        "--bus",
+        choices=("session", "system", "none"),
+        default="system",
+        help="D-Bus bus to register on. Default is 'system'. Use 'none' to disable D-Bus.",
+    )
     return parser
 
 
@@ -211,11 +285,19 @@ def main() -> int:
             config=app_config,
             controller=PlatformProfileController(),
             logger=log,
+            config_path=args.config,
         )
         if args.once:
             daemon.tick()
         else:
-            daemon.run_forever()
+            try:
+                # Try running asynchronously with integrated D-Bus service
+                asyncio.run(daemon.run_forever_async(bus_kind=args.bus))
+            except KeyboardInterrupt:
+                return 130
+            except Exception as exc:
+                log.warning("Async loop failed: %s. Falling back to sync loop.", exc)
+                daemon.run_forever()
     except (PlatformProfileError, RuntimeError, ValueError) as exc:
         log.error("%s", exc)
         return 1

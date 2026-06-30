@@ -98,6 +98,8 @@ fi
 install -d \
     "${INSTALL_DIR}" \
     "${INSTALL_DIR}/asus_control" \
+    "${INSTALL_DIR}/asus_control/gui" \
+    "${INSTALL_DIR}/asus_control/gui/translations" \
     "${INSTALL_DIR}/config" \
     "${INSTALL_DIR}/systemd" \
     "${BIN_DIR}" \
@@ -106,6 +108,14 @@ install -d \
 install -m 0644 \
     "${SOURCE_DIR}/asus_control/"*.py \
     "${INSTALL_DIR}/asus_control/"
+
+install -m 0644 \
+    "${SOURCE_DIR}/asus_control/gui/"*.py \
+    "${INSTALL_DIR}/asus_control/gui/"
+
+if [[ -f "${SOURCE_DIR}/asus_control/gui/translations/README.md" ]]; then
+    install -m 0644 "${SOURCE_DIR}/asus_control/gui/translations/"* "${INSTALL_DIR}/asus_control/gui/translations/"
+fi
 
 install -m 0644 \
     "${SOURCE_DIR}/cli.py" \
@@ -127,7 +137,13 @@ fi
 install -m 0644 \
     "${SOURCE_DIR}/systemd/asus-control.service" \
     "${SOURCE_DIR}/systemd/asus-control.timer" \
+    "${SOURCE_DIR}/systemd/org.asuslinux.control.policy" \
+    "${SOURCE_DIR}/systemd/org.asuslinux.Control.conf" \
     "${INSTALL_DIR}/systemd/"
+
+# Copy system-wide Polkit and D-Bus configurations
+install -m 0644 "${SOURCE_DIR}/systemd/org.asuslinux.control.policy" "/usr/share/polkit-1/actions/org.asuslinux.control.policy"
+install -m 0644 "${SOURCE_DIR}/systemd/org.asuslinux.Control.conf" "/etc/dbus-1/system.d/org.asuslinux.Control.conf"
 
 cat > "${INSTALL_DIR}/systemd/asus-control.service" <<EOF
 [Unit]
